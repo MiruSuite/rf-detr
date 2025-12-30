@@ -72,11 +72,12 @@ def convert_coco_poly_to_mask(segmentations: List[Any], height: int, width: int)
 
 
 class CocoDetection(torchvision.datasets.CocoDetection):
-    def __init__(self, img_folder: Union[str, Path], ann_file: Union[str, Path], transforms: Optional[Any], include_masks: bool = False) -> None:
+    def __init__(self, img_folder: Union[str, Path], ann_file: Union[str, Path], transforms: Optional[Any], include_masks: bool = False, include_keypoints=False, num_keypoints=17) -> None:
         super(CocoDetection, self).__init__(img_folder, ann_file)
         self._transforms = transforms
         self.include_masks = include_masks
-        self.prepare = ConvertCoco(include_masks=include_masks)
+        self.include_keypoints = include_keypoints
+        self.prepare = ConvertCoco(include_masks=include_masks, include_keypoints=include_keypoints, num_keypoints=num_keypoints)
 
     def __getitem__(self, idx: int) -> Tuple[Any, Any]:
         img, target = super(CocoDetection, self).__getitem__(idx)
@@ -90,8 +91,10 @@ class CocoDetection(torchvision.datasets.CocoDetection):
 
 class ConvertCoco(object):
 
-    def __init__(self, include_masks: bool = False) -> None:
+    def __init__(self, include_masks: bool = False, include_keypoints=False, num_keypoints=17) -> None:
         self.include_masks = include_masks
+        self.include_keypoints = include_keypoints
+        self.num_keypoints = num_keypoints
 
     def __call__(self, image: Image.Image, target: Dict[str, Any]) -> Tuple[Image.Image, Dict[str, Any]]:
         w, h = image.size
@@ -142,10 +145,61 @@ class ConvertCoco(object):
 
             target["masks"] = target["masks"].bool()
 
+        # add keypoints if requested (COCO format: [x1,y1,v1, x2,y2,v2, ...])
+        if self.include_keypoints:
+            keypoints = self._extract_keypoints(anno, w, h)
+            if keypoints.numel() > 0 and keep.any():
+                target["keypoints"] = keypoints[keep]
+            else:
+                target["keypoints"] = torch.zeros((0, self.num_keypoints, 3), dtype=torch.float32)
+
         target["orig_size"] = torch.as_tensor([int(h), int(w)])
         target["size"] = torch.as_tensor([int(h), int(w)])
 
         return image, target
+
+    def _extract_keypoints(self, anno, w, h):
+        """Extract keypoints from COCO annotations.
+
+        COCO keypoint format: [x1, y1, v1, x2, y2, v2, ...] where v is visibility (0/1/2)
+        - 0: not labeled
+        - 1: labeled but not visible (occluded)
+        - 2: labeled and visible
+
+        Output format: [num_instances, num_keypoints, 3] where 3 is (x, y, v)
+        Coordinates are normalized to [0, 1].
+        """
+        if len(anno) == 0:
+            return torch.zeros((0, self.num_keypoints, 3), dtype=torch.float32)
+
+        keypoints_list = []
+        for obj in anno:
+            if "keypoints" in obj and len(obj["keypoints"]) > 0:
+                kpts = obj["keypoints"]
+                # Reshape from flat to [K, 3]
+                kpts = torch.tensor(kpts, dtype=torch.float32).reshape(-1, 3)
+
+                # Handle different number of keypoints than expected
+                if kpts.shape[0] < self.num_keypoints:
+                    # Pad with zeros if fewer keypoints
+                    padding = torch.zeros((self.num_keypoints - kpts.shape[0], 3), dtype=torch.float32)
+                    kpts = torch.cat([kpts, padding], dim=0)
+                elif kpts.shape[0] > self.num_keypoints:
+                    # Truncate if more keypoints
+                    kpts = kpts[:self.num_keypoints]
+
+                # Normalize coordinates to [0, 1]
+                kpts[:, 0] = kpts[:, 0] / w  # x
+                kpts[:, 1] = kpts[:, 1] / h  # y
+                # Clamp to valid range
+                kpts[:, 0] = kpts[:, 0].clamp(0, 1)
+                kpts[:, 1] = kpts[:, 1].clamp(0, 1)
+            else:
+                # No keypoints for this instance
+                kpts = torch.zeros((self.num_keypoints, 3), dtype=torch.float32)
+            keypoints_list.append(kpts)
+
+        return torch.stack(keypoints_list, dim=0)
 
 
 def make_coco_transforms(image_set: str, resolution: int, multi_scale: bool = False, expanded_scales: bool = False, skip_random_resize: bool = False, patch_size: int = 16, num_windows: int = 4) -> T.Compose:
@@ -306,6 +360,8 @@ def build_roboflow_from_coco(image_set: str, args: Any, resolution: int) -> Coco
     do_random_resize_via_padding = getattr(args, "do_random_resize_via_padding", False)
     patch_size = getattr(args, "patch_size", 16)
     num_windows = getattr(args, "num_windows", 4)
+    include_keypoints = getattr(args, 'keypoint_head', False)
+    num_keypoints = getattr(args, 'num_keypoints', 17)
 
     if square_resize_div_64:
         logger.info(f"Building Roboflow {image_set} dataset with square resize at resolution {resolution}")
@@ -316,8 +372,9 @@ def build_roboflow_from_coco(image_set: str, args: Any, resolution: int) -> Coco
             expanded_scales=expanded_scales,
             skip_random_resize=not do_random_resize_via_padding,
             patch_size=patch_size,
-            num_windows=num_windows
-        ), include_masks=include_masks)
+            num_windows=num_windows,
+            include_masks=include_masks,
+        ), include_masks=include_masks, include_keypoints=include_keypoints, num_keypoints=num_keypoints)
     else:
         logger.info(f"Building Roboflow {image_set} dataset at resolution {resolution}")
         dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(
@@ -328,5 +385,5 @@ def build_roboflow_from_coco(image_set: str, args: Any, resolution: int) -> Coco
             skip_random_resize=not do_random_resize_via_padding,
             patch_size=patch_size,
             num_windows=num_windows
-        ), include_masks=include_masks)
+        ), include_masks=include_masks, include_keypoints=include_keypoints, num_keypoints=num_keypoints)
     return dataset
