@@ -385,10 +385,11 @@ def evaluate(model, criterion, postprocess, data_loader, base_ds, device, args=N
     iou_types = ("bbox",) if not args.segmentation_head else ("bbox", "segm")
     if getattr(args, 'segmentation_head', False):
         iou_types.append("segm")
+    num_keypoints = getattr(args, 'num_keypoints', 17)
     if getattr(args, 'keypoint_head', False):
         iou_types.append("keypoints")
     iou_types = tuple(iou_types)
-    coco_evaluator = CocoEvaluator(base_ds, iou_types, args.eval_max_dets)
+    coco_evaluator = CocoEvaluator(base_ds, iou_types, args.eval_max_dets, num_keypoints=num_keypoints)
 
     print_freq = args.print_freq if args is not None else 10
     for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
