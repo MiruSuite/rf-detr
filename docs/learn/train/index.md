@@ -101,7 +101,6 @@ For image segmentation, the RF-DETR-Seg (Preview) checkpoint is used by default.
         grad_accum_steps=4,
         lr=1e-4,
         output_dir=<OUTPUT_PATH>,
-        num_keypoints=17,  # Must match model config
     )
     ```
 
@@ -123,7 +122,6 @@ For image segmentation, the RF-DETR-Seg (Preview) checkpoint is used by default.
         grad_accum_steps=4,
         lr=1e-4,
         output_dir=<OUTPUT_PATH>,
-        num_keypoints=2,
     )
     ```
 
@@ -220,7 +218,6 @@ During training, multiple model checkpoints are saved to the output directory:
         grad_accum_steps=4,
         lr=1e-4,
         output_dir=<OUTPUT_PATH>,
-        num_keypoints=2,
         resume=<CHECKPOINT_PATH>
     )
     ```
@@ -280,7 +277,6 @@ Early stopping monitors validation mAP and halts training if improvements remain
         grad_accum_steps=4,
         lr=1e-4,
         output_dir=<OUTPUT_PATH>,
-        num_keypoints=2,
         early_stopping=True
     )
     ```
