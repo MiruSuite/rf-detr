@@ -108,28 +108,32 @@ class RFDETR:
     def optimize_for_inference(self, compile=True, batch_size=1, dtype=torch.float32):
         self.remove_optimized_model()
 
-        self.model.inference_model = deepcopy(self.model.model)
-        self.model.inference_model.eval()
-        self.model.inference_model.export()
+        try:
+            self.model.inference_model = deepcopy(self.model.model)
+            self.model.inference_model.eval()
+            self.model.inference_model.export()
 
-        self._optimized_resolution = self.model.resolution
-        self._is_optimized_for_inference = True
+            self._optimized_resolution = self.model.resolution
 
-        self.model.inference_model = self.model.inference_model.to(dtype=dtype)
-        self._optimized_dtype = dtype
+            self.model.inference_model = self.model.inference_model.to(dtype=dtype)
+            self._optimized_dtype = dtype
 
-        if compile:
-            self.model.inference_model = torch.jit.trace(
-                self.model.inference_model,
-                torch.randn(
-                    batch_size, 3, self.model.resolution, self.model.resolution,
-                    device=self.model.device,
-                    dtype=dtype
+            if compile:
+                self.model.inference_model = torch.jit.trace(
+                    self.model.inference_model,
+                    torch.randn(
+                        batch_size, 3, self.model.resolution, self.model.resolution, 
+                        device=self.model.device,
+                        dtype=dtype
+                    )
                 )
-            )
-            self._optimized_has_been_compiled = True
-            self._optimized_batch_size = batch_size
-
+                self._optimized_has_been_compiled = True
+                self._optimized_batch_size = batch_size
+            self._is_optimized_for_inference = True
+        except Exception:
+            self.remove_optimized_model()
+            raise 
+    
     def remove_optimized_model(self):
         self.model.inference_model = None
         self._is_optimized_for_inference = False

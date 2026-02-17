@@ -266,7 +266,13 @@ class LWDETR(nn.Module):
             if self.segmentation_head is not None:
                 outputs_masks = self.segmentation_head(srcs[0], [hs,], tensors.shape[-2:])[0]
             if self.keypoint_head is not None:
-                outputs_keypoints = self.keypoint_head([hs[-1]], reference_boxes=outputs_coord[-1])[0]
+                # `hs` can be either:
+                # - [num_decoder_layers, B, num_queries, hidden_dim] (stacked per layer)
+                # - [B, num_queries, hidden_dim] (already last layer)
+                hs_last = hs[-1] if getattr(hs, "dim", lambda: 0)() == 4 else hs
+                boxes_last = outputs_coord[-1] if getattr(outputs_coord, "dim", lambda: 0)() == 4 else outputs_coord
+
+                outputs_keypoints = self.keypoint_head([hs_last], reference_boxes=boxes_last)[0]
         else:
             assert self.two_stage, "if not using decoder, two_stage must be True"
             outputs_class = self.transformer.enc_out_class_embed[0](hs_enc)
