@@ -13,6 +13,7 @@ from typing import Union, List
 from copy import deepcopy
 
 import numpy as np
+from rfdetr.assets.model_weights import download_pretrain_weights
 import supervision as sv
 import torch
 import torchvision.transforms.functional as F
